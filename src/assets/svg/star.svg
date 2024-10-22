@@ -1,0 +1,16 @@
+ <svg
+                        width="35"
+                        height="35"
+                        viewBox="0 0 35 35"
+                        xmlns="http://www.w3.org/2000/svg"
+                    >
+                        <g transform="rotate(-15, 17.5, 17.5)">
+                            <polygon
+                                points="17.5,2.5 21,12.5 31.5,13 22.5,19.5 25.5,29.5 17.5,23 9.5,30 11.5,18.5 2.5,12.5 13.5,12"
+                              
+                                stroke="black"
+                                strokeWidth="2"
+                                strokeLinejoin="round"
+                            />
+                        </g>
+                    </svg>
