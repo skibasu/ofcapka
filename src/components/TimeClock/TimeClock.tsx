@@ -7,6 +7,14 @@ const CanvasWithArrow: React.FC = () => {
     const [startAngle, setStartAngle] = useState(0) // Kąt początkowy przy rozpoczęciu przeciągania
     const [hoveredHour, setHoveredHour] = useState<number | null>(null) // Trzyma aktualnie najechaną godzinę
     const [highlightedHour, setHighlightedHour] = useState<number | null>(12) // Trzyma godzinę, która jest podświetlana przez wskazówkę
+    const [currentTime, setCurrentTime] = useState<{ h: number; m: number }>({
+        h: 12,
+        m: 0,
+    }) // Przechowuje aktualny czas
+    const [isHoveredArrow, setIsHoveredArrow] = useState(false) // Czy strzałka jest najechana
+    const [isInArrowArea, setIsInArrowArea] = useState(false) // Czy kliknięcie jest na strzałce
+    const arrowRadius = 12 // Promień obszaru strzałki
+
     const hourPositions = useRef<{ hour: number; x: number; y: number }[]>([]) // Referencja na pozycje godzin
 
     useEffect(() => {
@@ -99,8 +107,15 @@ const CanvasWithArrow: React.FC = () => {
         context.lineWidth = 2 // Grubość linii
         context.stroke()
 
-        // Rysowanie białej strzałki skierowanej grotem w stronę cyfr
-        drawArrow(context, lineEndX, lineEndY, angleInRadians, arrowLength)
+        // Rysowanie białej strzałki skierowanej grotem w stronę cyfr, zmiana koloru, gdy najechane
+        drawArrow(
+            context,
+            lineEndX,
+            lineEndY,
+            angleInRadians,
+            arrowLength,
+            isHoveredArrow
+        )
 
         // Funkcja do rysowania strzałki
         function drawArrow(
@@ -108,7 +123,8 @@ const CanvasWithArrow: React.FC = () => {
             x: number,
             y: number,
             angle: number,
-            length: number
+            length: number,
+            isHovered: boolean
         ) {
             const arrowWidth = 12 // Powiększona szerokość strzałki
             ctx.beginPath()
@@ -126,7 +142,7 @@ const CanvasWithArrow: React.FC = () => {
                 y - arrowWidth * Math.sin(angle + Math.PI / 6)
             ) // Prawe skrzydło
             ctx.closePath()
-            ctx.fillStyle = "white"
+            ctx.fillStyle = isHovered ? "yellow" : "white" // Zmiana koloru na żółty, gdy najechane
             ctx.fill()
         }
 
@@ -136,7 +152,23 @@ const CanvasWithArrow: React.FC = () => {
 
         // Przywrócenie pełnej nieprzezroczystości (opacity) dla kolejnych elementów, jeśli będą rysowane
         context.globalAlpha = 1
-    }, [angle, hoveredHour, highlightedHour]) // Dodajemy zależność od highlightedHour
+
+        // Sprawdzamy, czy strzałka jest w obszarze, na który kliknięto
+        canvas.onmousedown = (e) => {
+            const rect = canvas.getBoundingClientRect()
+            const mouseX = e.clientX - rect.left
+            const mouseY = e.clientY - rect.top
+
+            const distanceFromArrow = Math.sqrt(
+                Math.pow(mouseX - lineEndX, 2) + Math.pow(mouseY - lineEndY, 2)
+            )
+
+            if (distanceFromArrow < arrowRadius) {
+                setIsInArrowArea(true) // Aktywuj przeciąganie tylko na strzałce
+                setIsDragging(true)
+            }
+        }
+    }, [angle, hoveredHour, highlightedHour, isHoveredArrow])
 
     // Funkcja obliczająca kąt w stopniach na podstawie pozycji myszy
     const calculateAngle = (mouseX: number, mouseY: number) => {
@@ -158,6 +190,77 @@ const CanvasWithArrow: React.FC = () => {
         return degrees
     }
 
+    // Rozpoczęcie przeciągania
+    const handleMouseDown = (e: React.MouseEvent) => {
+        const newAngle = calculateAngle(e.clientX, e.clientY)
+        setStartAngle(newAngle) // Zapisz początkowy kąt podczas rozpoczęcia przeciągania
+    }
+
+    // Aktualizacja kąta podczas przeciągania
+    const handleMouseMove = (e: React.MouseEvent) => {
+        const canvas = canvasRef.current
+        if (!canvas) return
+
+        const rect = canvas.getBoundingClientRect()
+        const canvasX = e.clientX - rect.left
+        const canvasY = e.clientY - rect.top
+
+        // Obliczanie pozycji strzałki
+        const adjustedRadius = 100 - 12 - 40 // Skracamy linię, aby była przed cyframi
+        const angleInRadians = (angle - 90) * (Math.PI / 180) // Zamiana kąta na radiany
+        const lineEndX = 110 + adjustedRadius * Math.cos(angleInRadians)
+        const lineEndY = 110 + adjustedRadius * Math.sin(angleInRadians)
+
+        // Sprawdzanie, czy kursor jest nad strzałką
+        const distanceFromArrow = Math.sqrt(
+            Math.pow(canvasX - lineEndX, 2) + Math.pow(canvasY - lineEndY, 2)
+        )
+
+        if (distanceFromArrow < arrowRadius) {
+            setIsHoveredArrow(true)
+            canvas.style.cursor = "pointer" // Ustawienie kursora na pointer
+        } else {
+            setIsHoveredArrow(false)
+            canvas.style.cursor = "default" // Przywrócenie domyślnego kursora
+        }
+
+        if (isDragging && isInArrowArea) {
+            const newAngle = calculateAngle(e.clientX, e.clientY)
+
+            // Oblicz różnicę kąta między początkowym a bieżącym kątem przeciągania
+            let deltaAngle = newAngle - startAngle
+            if (deltaAngle < 0) deltaAngle += 360 // Zapewnij, że delta jest zawsze dodatnia
+
+            setAngle((prevAngle) => (prevAngle + deltaAngle) % 360) // Ustaw nowy kąt
+            setStartAngle(newAngle) // Zaktualizuj początkowy kąt
+        }
+
+        let isHovering = false
+        hourPositions.current.forEach(({ hour, x, y }) => {
+            const distance = Math.sqrt((canvasX - x) ** 2 + (canvasY - y) ** 2)
+            if (distance < 15) {
+                setHoveredHour(hour) // Ustawiamy najechaną godzinę
+                canvas.style.cursor = "pointer" // Zmiana kursora na pointer
+                isHovering = true
+            }
+        })
+
+        if (!isHovering) {
+            setHoveredHour(null)
+        }
+    }
+
+    // Zakończenie przeciągania
+    const handleMouseUp = () => {
+        setIsDragging(false)
+        setIsInArrowArea(false) // Zatrzymaj przeciąganie tylko na strzałce
+    }
+
+    // Kliknięcie w canvas, aby ustawić wskazówkę na godzinę
+    const handleClick = (e: React.MouseEvent) => {
+        handleClickOnHour(e.clientX, e.clientY)
+    }
+
     // Funkcja sprawdzająca, czy kliknięto w godzinę
     const handleClickOnHour = (mouseX: number, mouseY: number) => {
         const canvas = canvasRef.current
@@ -175,60 +278,6 @@ const CanvasWithArrow: React.FC = () => {
                 setAngle(newAngle)
             }
         })
-    }
-
-    // Rozpoczęcie przeciągania
-    const handleMouseDown = (e: React.MouseEvent) => {
-        const newAngle = calculateAngle(e.clientX, e.clientY)
-        setStartAngle(newAngle) // Zapisz początkowy kąt podczas rozpoczęcia przeciągania
-        setIsDragging(true)
-    }
-
-    // Aktualizacja kąta podczas przeciągania
-    const handleMouseMove = (e: React.MouseEvent) => {
-        if (isDragging) {
-            const newAngle = calculateAngle(e.clientX, e.clientY)
-
-            // Oblicz różnicę kąta między początkowym a bieżącym kątem przeciągania
-            let deltaAngle = newAngle - startAngle
-            if (deltaAngle < 0) deltaAngle += 360 // Zapewnij, że delta jest zawsze dodatnia
-
-            setAngle((prevAngle) => (prevAngle + deltaAngle) % 360) // Ustaw nowy kąt
-            setStartAngle(newAngle) // Zaktualizuj początkowy kąt
-        }
-
-        // Sprawdzanie, czy kursor jest w pobliżu godziny
-        const canvas = canvasRef.current
-        if (!canvas) return
-
-        const rect = canvas.getBoundingClientRect()
-        const canvasX = e.clientX - rect.left
-        const canvasY = e.clientY - rect.top
-
-        let isHovering = false
-        hourPositions.current.forEach(({ hour, x, y }) => {
-            const distance = Math.sqrt((canvasX - x) ** 2 + (canvasY - y) ** 2)
-            if (distance < 15) {
-                setHoveredHour(hour) // Ustawiamy najechaną godzinę
-                canvas.style.cursor = "pointer" // Zmiana kursora na pointer
-                isHovering = true
-            }
-        })
-
-        if (!isHovering) {
-            setHoveredHour(null)
-            canvas.style.cursor = "default" // Przywrócenie domyślnego kursora
-        }
-    }
-
-    // Zakończenie przeciągania
-    const handleMouseUp = () => {
-        setIsDragging(false)
-    }
-
-    // Kliknięcie w canvas, aby ustawić wskazówkę na godzinę
-    const handleClick = (e: React.MouseEvent) => {
-        handleClickOnHour(e.clientX, e.clientY)
     }
 
     return (
