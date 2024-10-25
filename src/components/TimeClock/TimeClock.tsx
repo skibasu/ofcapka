@@ -1,22 +1,27 @@
 import React, { useRef, useEffect, useState } from "react"
+import { ClockMinutes } from "../InputTime/Clock"
+import { config } from "../InputTime/config"
 
 const CanvasWithArrow: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
+    const canvasRef1 = useRef<HTMLCanvasElement | null>(null)
     const [isDragging, setIsDragging] = useState(false)
     const [angle, setAngle] = useState(0) // Kąt w stopniach, początkowo 0 (godzina 12)
     const [startAngle, setStartAngle] = useState(0) // Kąt początkowy przy rozpoczęciu przeciągania
     const [hoveredHour, setHoveredHour] = useState<number | null>(null) // Trzyma aktualnie najechaną godzinę
     const [highlightedHour, setHighlightedHour] = useState<number | null>(12) // Trzyma godzinę, która jest podświetlana przez wskazówkę
-    const [currentTime, setCurrentTime] = useState<{ h: number; m: number }>({
-        h: 12,
-        m: 0,
-    }) // Przechowuje aktualny czas
+
     const [isHoveredArrow, setIsHoveredArrow] = useState(false) // Czy strzałka jest najechana
     const [isInArrowArea, setIsInArrowArea] = useState(false) // Czy kliknięcie jest na strzałce
     const arrowRadius = 12 // Promień obszaru strzałki
-
+    const [time, setTime] = useState<{ h: number; m: number }>({ h: 0, m: 0 })
+    const callback = (args: { h: number; m: number }) => setTime(args)
     const hourPositions = useRef<{ hour: number; x: number; y: number }[]>([]) // Referencja na pozycje godzin
-
+    useEffect(() => {
+        const canvas1 = canvasRef1.current
+        if (!canvas1) return
+        new ClockMinutes(config, canvas1, callback)
+    }, [])
     useEffect(() => {
         const canvas = canvasRef.current
         if (!canvas) return
@@ -281,16 +286,31 @@ const CanvasWithArrow: React.FC = () => {
     }
 
     return (
-        <div>
-            <canvas
-                ref={canvasRef}
-                style={{ border: "1px solid black" }}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onClick={handleClick} // Obsługa kliknięć w godziny
-            />
-        </div>
+        <>
+            <section>
+                <div>
+                    {/* <canvas
+                    ref={canvasRef}
+                    style={{ border: "1px solid black" }}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onClick={handleClick} // Obsługa kliknięć w godziny
+                /> */}
+                </div>
+                <div>
+                    <canvas
+                        ref={canvasRef1}
+                        style={{ border: "1px solid black" }}
+                    />
+                </div>
+
+                <h1 className="text-center py-2 text-2xl">
+                    {time.h > 9 ? time.h : "0" + time.h} :{" "}
+                    {time.m > 9 ? time.m : "0" + time.m}
+                </h1>
+            </section>
+        </>
     )
 }
 
