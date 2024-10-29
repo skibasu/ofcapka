@@ -396,7 +396,7 @@ export class ClockMinutes {
                 this.hoveredTime = null
 
                 if (this.currentBoardType === "hours") {
-                    this.hours = i === 0 ? 12 : i
+                    this.hours = this.degreeToHours(this.angle)
                 } else {
                     this.minutes = this.degreeToMinutes(this.angle)
                 }
@@ -406,6 +406,7 @@ export class ClockMinutes {
                 return
             }
         }
+
         const [lineEndX, lineEndY] = this.getHandLineEnds()
 
         const arrowWidth = config.houerHand.arrow.width
@@ -454,19 +455,12 @@ export class ClockMinutes {
     }
 
     private onMouseUp() {
-        const config = this.config
         if (this.dragging && this.currentBoardType === "minutes") {
             this.switch = true
         }
         this.dragging = false
 
-        let normalizedAngle = (this.angle - config.angleOffset) % 360 // Normalize angle (90 degrees offset for 12 o'clock)
-        let hourIndex = Math.floor(normalizedAngle / 30)
-        if (hourIndex === 12) {
-            hourIndex = 0
-        }
-
-        this.selectedTime = hourIndex
+        this.selectedTime = this.degreeToHours(this.angle)
     }
 
     private onMouseMove(e: MouseEvent) {
@@ -533,6 +527,11 @@ export class ClockMinutes {
         )
     }
 
+    private degreeToHours(angleInDegrees: number) {
+        let normalizedAngle = (this.angle - this.config.angleOffset) % 360 // Normalize angle (90 degrees offset for 12 o'clock)
+        let hourIndex = Math.floor(normalizedAngle / 30)
+        return hourIndex === 12 ? 0 : hourIndex
+    }
     private isArrowHovered(
         p: { x: number; y: number },
         p0: { x: number; y: number },
