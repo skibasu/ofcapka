@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from "react"
 import { ClockMinutes } from "../InputTime/Clock/Clock"
 import { config } from "../InputTime/Clock/config"
+import { Ampm, TimeValues } from "../InputTime/Clock/Clock.types"
 
 const CanvasWithArrow: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -14,8 +15,12 @@ const CanvasWithArrow: React.FC = () => {
     const [isHoveredArrow, setIsHoveredArrow] = useState(false) // Czy strzałka jest najechana
     const [isInArrowArea, setIsInArrowArea] = useState(false) // Czy kliknięcie jest na strzałce
     const arrowRadius = 12 // Promień obszaru strzałki
-    const [time, setTime] = useState<{ h: number; m: number }>({ h: 0, m: 0 })
-    const callback = (args: { h: number; m: number }) => setTime(args)
+    const [time, setTime] = useState<TimeValues>({
+        h: 0,
+        m: 0,
+        ampm: "AM",
+    })
+    const callback = (args: TimeValues) => setTime(args)
     const hourPositions = useRef<{ hour: number; x: number; y: number }[]>([]) // Referencja na pozycje godzin
     useEffect(() => {
         const canvas1 = canvasRef1.current
@@ -308,6 +313,7 @@ const CanvasWithArrow: React.FC = () => {
                 <h1 className="text-center py-2 text-2xl">
                     {time.h > 9 ? time.h : "0" + time.h} :{" "}
                     {time.m > 9 ? time.m : "0" + time.m}
+                    <span className="cursor-pointer p-2">{time.ampm}</span>
                 </h1>
             </section>
         </>

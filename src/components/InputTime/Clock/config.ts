@@ -29,7 +29,7 @@ export const config: Config = {
         },
         line: {
             ...generateCenterPoint(width, height),
-            offsetTop: 10,
+            offsetTop: 17,
             width: 2,
             backgroundColor: "#fff",
         },

@@ -55,7 +55,8 @@ export class ClockMinutes {
         this.adjustedRadius =
             this.config.board.radius -
             this.config.houerHand.arrow.height -
-            this.config.hour.offsetTop
+            this.config.hour.offsetTop -
+            this.config.houerHand.line.offsetTop
         this._angle = this.config.angleOffset
         this.callback = callback
 
@@ -250,6 +251,28 @@ export class ClockMinutes {
     public set angle(value: number) {
         if (this._angle !== value) {
             this._angle = value
+            this.selectedTime =
+                this.degreeToHours(this.angle) === 12
+                    ? 0
+                    : this.degreeToHours(this.angle)
+            this.hoveredTime = null
+
+            if (this.currentBoardType === "hours") {
+                this.hours = this.degreeToHours(this.angle)
+            } else {
+                this.minutes = this.degreeToMinutes(this.angle)
+            }
+            if (this.switch) {
+                if (this.currentBoardType === "hours") {
+                    this.switchBoard()
+                    this._angle = this.config.angleOffset
+                    this.minutes = this.degreeToMinutes(this.angle)
+                    this.selectedTime =
+                        this.degreeToHours(this.angle) === 12
+                            ? 0
+                            : this.degreeToHours(this.angle)
+                }
+            }
             this.update()
         }
     }
@@ -261,7 +284,7 @@ export class ClockMinutes {
     public set minutes(min: number) {
         if (this._minutes !== min) {
             this._minutes = min
-            this.callback({ h: this.hours, m: min, ampm: this._ampm })
+            this.callback({ h: this.hours, m: min, ampm: this.ampm })
         }
     }
 
@@ -272,8 +295,17 @@ export class ClockMinutes {
     public set hours(h: number) {
         if (this._hours !== h) {
             this._hours = h
-            this.minutes = 0
-            this.callback({ h, m: this._minutes, ampm: this._ampm })
+            this.callback({ h, m: this.minutes, ampm: this.ampm })
+        }
+    }
+    public get ampm(): Ampm {
+        return this._ampm
+    }
+
+    public set ampm(value: Ampm) {
+        if (this._ampm !== value) {
+            this._ampm = value
+            this.callback({ h: this.hours, m: this.minutes, ampm: value })
         }
     }
 
@@ -301,13 +333,11 @@ export class ClockMinutes {
     public set selectedTime(time: number | null) {
         if (this._selectedTime !== time) {
             this._selectedTime = time
-            this.update()
         }
     }
 
     private set switch(value: boolean) {
         this._switch = value
-        value && this.switchBoard()
     }
     public get switch(): boolean {
         return this._switch
@@ -327,33 +357,34 @@ export class ClockMinutes {
         this.hoveredTime = null
         if (this.currentBoardType === "hours") {
             this.currentBoardType = "minutes"
-            this.angle = -90
         } else if (this.currentBoardType === "minutes") {
             this.currentBoardType = "hours"
-            this.angle = (this.hours === 12 ? 0 : this.hours * 30) - 90
         }
-        this.update()
     }
-    private getCurrentTime() {
+    private getCurrentTime(): TimeValues {
         const date = new Date()
         let hours = date.getHours()
         const minutes = date.getMinutes()
 
         const ampm = hours >= 12 ? "PM" : "AM"
+        console.log("Current time : ", hours, minutes, ampm)
         hours = hours % 12
         hours = hours ? hours : 12
 
         return { h: hours, m: minutes, ampm }
     }
-    private setClock(h: number, m: number) {
+    private setClock(time: TimeValues) {
+        const { h, m, ampm } = time
+
         this.hours = h
         this.minutes = m
+        this.ampm = ampm
         this.selectedTime = h === 12 ? 0 : h
         this.angle = (h === 12 ? 0 : h * 30) + this.config.angleOffset
     }
     private setCurrentTime() {
-        const { h, m } = this.getCurrentTime()
-        this.setClock(h, m)
+        const time = this.getCurrentTime()
+        this.setClock(time)
     }
     private generateTimeText(hour: number): string | undefined {
         if (this.currentBoardType === "hours") {
@@ -380,6 +411,7 @@ export class ClockMinutes {
      */
 
     private onMouseDown(e: MouseEvent) {
+        this.switch = false
         const mousePos = this.getMousePos(e)
         const config = this.config
 
@@ -391,18 +423,9 @@ export class ClockMinutes {
             )
 
             if (distanceFromHour <= 15) {
-                this.angle = i * 30 + config.angleOffset
-                this.selectedTime = i
-                this.hoveredTime = null
-
-                if (this.currentBoardType === "hours") {
-                    this.hours = this.degreeToHours(this.angle)
-                } else {
-                    this.minutes = this.degreeToMinutes(this.angle)
-                }
-
                 this.switch = true
-                console.log("Current time : ", this.hours, " : ", this._minutes)
+                this.angle = i * 30 + config.angleOffset
+
                 return
             }
         }
@@ -460,7 +483,7 @@ export class ClockMinutes {
         }
         this.dragging = false
 
-        this.selectedTime = this.degreeToHours(this.angle)
+        //this.selectedTime = this.degreeToHours(this.angle)
     }
 
     private onMouseMove(e: MouseEvent) {
@@ -496,8 +519,8 @@ export class ClockMinutes {
 
             this.angle = angleInDegrees
 
-            this.minutes = this.degreeToMinutes(angleInDegrees)
-            //this.hoveredTime = Math.floor(this.minutes / 5)
+            // this.minutes = this.degreeToMinutes(angleInDegrees)
+            this.hoveredTime = Math.floor(this.minutes / 5)
         }
     }
 
