@@ -1,9 +1,11 @@
-import { Config } from "./Clock.types"
+import { Ampm, Config, TimeValues } from "./Clock.types"
 
 /**
  * Class representing a clock
  */
 export class ClockMinutes {
+    /** Consts */
+    private fullCirce: number = 2 * Math.PI
     /**
      * The canvas rendering context
      */
@@ -12,23 +14,29 @@ export class ClockMinutes {
     /**
      * The configuration object
      */
-    public config: Config
+    private config: Config
 
     /**
      * The canvas element
      */
     private canvas: HTMLCanvasElement
-    private callback: (args: { h: number; m: number }) => void
+    private callback: (args: TimeValues) => void
 
+    private adjustedRadius: number = 0
+    private dragging: boolean = false // Is the user dragging the clock hand?
     private hourPositions: { hour: number; x: number; y: number }[] = []
+
     private _currentBoardType: "hours" | "minutes" = "hours"
     private _switch: boolean = false
-    private _angle: number = -90 // Angle of the clock hand
+
+    private _angle: number = 0
+
     private _minutes: number = 0
     private _hours: number = 0
+    private _ampm: Ampm = "AM"
+
     private _hoveredTime: number | null = null
     private _selectedTime: number | null = 0
-    private dragging: boolean = false // Is the user dragging the clock hand?
 
     /**
      * Creates a new instance of the Clock class
@@ -39,10 +47,16 @@ export class ClockMinutes {
         config: Config,
         canvas: HTMLCanvasElement,
 
-        callback: (args: { h: number; m: number }) => void
+        callback: (args: TimeValues) => void
     ) {
         this.config = config
         this.canvas = canvas
+
+        this.adjustedRadius =
+            this.config.board.radius -
+            this.config.houerHand.arrow.height -
+            this.config.hour.offsetTop
+        this._angle = this.config.angleOffset
         this.callback = callback
 
         canvas.width = config.root.width
@@ -61,57 +75,47 @@ export class ClockMinutes {
     }
 
     /**
-     * Draw the hand arrow (triangle) representing the clock's hand
+     * Draw the board circle
      */
-    private drawHandArrow() {
+    private drawBoardCircle() {
         const ctx = this.ctx
         const config = this.config
-        const angle = this._angle
-
+        const full = this.fullCirce
         if (!ctx) return
 
-        const adjustedRadius =
-            config.board.radius - config.houerHand.arrow.width - 40
-        const angleInRadians = angle * (Math.PI / 180) // Convert angle to radians
+        ctx.beginPath()
+        ctx.arc(
+            config.board.x,
+            config.board.y,
+            config.board.radius,
+            config.board.startAngle,
+            full
+        )
+        ctx.fillStyle = config.board.backgroundColor
+        ctx.strokeStyle = config.board.border
+        ctx.lineWidth = config.board.borderwidth
+        ctx.fill()
+        ctx.stroke()
+    }
 
-        // Calculate the end of the hand on the circle's perimeter
-        const lineEndX =
-            config.houerHand.line.x + adjustedRadius * Math.cos(angleInRadians)
-        const lineEndY =
-            config.houerHand.line.y + adjustedRadius * Math.sin(angleInRadians)
+    /**
+     * Draw the center circle of the clock
+     */
+    private drawCenterCircle() {
+        const ctx = this.ctx
+        const config = this.config
+        const full = this.fullCirce
+        if (!ctx) return
 
         ctx.beginPath()
-
-        // Arrow tip calculation relative to the angle
-        ctx.moveTo(
-            lineEndX +
-                (this.config.houerHand.arrow.width / 2) *
-                    Math.cos(angleInRadians - Math.PI / 2),
-            lineEndY +
-                (this.config.houerHand.arrow.width / 2) *
-                    Math.sin(angleInRadians - Math.PI / 2)
-        ) // Left side of the arrow
-
-        ctx.lineTo(
-            lineEndX +
-                this.config.houerHand.arrow.height * Math.cos(angleInRadians),
-            lineEndY +
-                this.config.houerHand.arrow.height * Math.sin(angleInRadians)
-        ) // Tip of the arrow
-
-        ctx.lineTo(
-            lineEndX +
-                (this.config.houerHand.arrow.width / 2) *
-                    Math.cos(angleInRadians + Math.PI / 2),
-            lineEndY +
-                (this.config.houerHand.arrow.width / 2) *
-                    Math.sin(angleInRadians + Math.PI / 2)
-        ) // Right side of the arrow
-
-        ctx.closePath()
-        ctx.strokeStyle = "white"
-        ctx.stroke()
-        ctx.fillStyle = "white"
+        ctx.arc(
+            config.centerCircle.x,
+            config.centerCircle.y,
+            config.centerCircle.radius,
+            config.centerCircle.startAngle,
+            full
+        )
+        ctx.fillStyle = config.centerCircle.backgroundColor
         ctx.fill()
     }
 
@@ -121,26 +125,68 @@ export class ClockMinutes {
     private drawLine() {
         const ctx = this.ctx
         const config = this.config
-        const angle = this._angle
+
         if (!ctx) return
 
-        const adjustedRadius =
-            config.board.radius - config.houerHand.arrow.width - 40
-        const angleInRadians = angle * (Math.PI / 180) // Convert angle to radians
+        const [lineEndX, lineEndY] = this.getHandLineEnds()
 
-        const lineEndX =
-            config.houerHand.line.x + adjustedRadius * Math.cos(angleInRadians)
-        const lineEndY =
-            config.houerHand.line.y + adjustedRadius * Math.sin(angleInRadians)
+        if (!lineEndX || !lineEndY) return
 
         ctx.beginPath()
-        ctx.moveTo(config.houerHand.line.x, config.houerHand.line.y) // Start of the hand line in the center
-        ctx.lineTo(lineEndX, lineEndY) // End of the hand line
-        ctx.strokeStyle = "white"
+        ctx.moveTo(config.houerHand.line.x, config.houerHand.line.y)
+        ctx.lineTo(lineEndX, lineEndY)
+        ctx.strokeStyle = config.houerHand.line.backgroundColor
         ctx.lineWidth = config.houerHand.line.width
         ctx.stroke()
     }
 
+    /**
+     * Draw the hand arrow (triangle) representing the clock's hand
+     */
+    private drawHandArrow() {
+        const ctx = this.ctx
+        const config = this.config
+        const angle = this.angle
+        if (!ctx) return
+
+        const [lineEndX, lineEndY] = this.getHandLineEnds()
+
+        if (!lineEndX || !lineEndY) return
+
+        ctx.beginPath()
+
+        ctx.moveTo(
+            lineEndX +
+                (config.houerHand.arrow.width / 2) *
+                    Math.cos(this.degreeToRadians(angle + config.angleOffset)),
+            lineEndY +
+                (config.houerHand.arrow.width / 2) *
+                    Math.sin(this.degreeToRadians(angle + config.angleOffset))
+        )
+
+        ctx.lineTo(
+            lineEndX +
+                config.houerHand.arrow.height *
+                    Math.cos(this.degreeToRadians(angle)),
+            lineEndY +
+                config.houerHand.arrow.height *
+                    Math.sin(this.degreeToRadians(angle))
+        )
+
+        ctx.lineTo(
+            lineEndX +
+                (config.houerHand.arrow.width / 2) *
+                    Math.cos(this.degreeToRadians(angle - config.angleOffset)),
+            lineEndY +
+                (config.houerHand.arrow.width / 2) *
+                    Math.sin(this.degreeToRadians(angle - config.angleOffset))
+        )
+        ctx.closePath()
+        ctx.strokeStyle = config.houerHand.arrow.border
+        ctx.stroke()
+        ctx.fillStyle = config.houerHand.arrow.backgroundColor
+        ctx.fill()
+    }
     /**
      * Draw the hours on the clock face
      */
@@ -151,87 +197,33 @@ export class ClockMinutes {
         if (!ctx) return
 
         config.hour.elements.forEach((hour, index) => {
-            let bgr = "grey"
-            if (index === this.hoveredTime) {
-                bgr = "pink"
-            } else if (index === this.selectedTime) {
-                bgr = "red"
-            }
+            const angle = this.degreeToRadians(index * 30 + config.angleOffset)
+            const backgroundColor = this.generateActiveHourColor(index)
 
-            const angleForHour = (index * 30 - 90) * (Math.PI / 180) // Convert hour angle with -90 degree offset
             const hourX =
                 config.hour.x +
-                (config.board.radius - config.hour.offsetTop) *
-                    Math.cos(angleForHour)
+                (config.board.radius - config.hour.offsetTop) * Math.cos(angle)
             const hourY =
                 config.hour.y +
-                (config.board.radius - config.hour.offsetTop) *
-                    Math.sin(angleForHour)
+                (config.board.radius - config.hour.offsetTop) * Math.sin(angle)
 
             ctx.beginPath()
-            ctx.globalAlpha = 0.5
 
+            ctx.globalAlpha = 0.5
             ctx.arc(hourX, hourY, config.hour.radius, 0, 2 * Math.PI)
-            ctx.fillStyle = bgr
+            ctx.fillStyle = backgroundColor
             ctx.fill()
             ctx.globalAlpha = 1
 
             this.hourPositions.push({ hour, x: hourX, y: hourY })
-            ctx.font = "16px Arial"
-            ctx.fillStyle = "white"
-            ctx.textAlign = "center"
-            ctx.textBaseline = "middle"
-            ctx.fillText(
-                this.currentBoardType === "hours"
-                    ? hour.toString()
-                    : (hour === 12 ? 0 : hour * 5).toString().length === 1
-                    ? `0${hour === 12 ? 0 : hour * 5}`
-                    : `${hour === 12 ? 0 : hour * 5}`,
-                hourX,
-                hourY
-            )
+
+            ctx.font = config.hour.font
+            ctx.fillStyle = config.hour.color
+            ctx.textAlign = config.hour.textAlign
+            ctx.textBaseline = config.hour.textBaseline
+
+            ctx.fillText(this.generateTimeText(hour) as string, hourX, hourY)
         })
-    }
-
-    /**
-     * Draw the center circle of the clock
-     */
-    private drawCenterCircle() {
-        const ctx = this.ctx
-        const config = this.config
-        if (!ctx) return
-        ctx.beginPath()
-        ctx.arc(
-            config.centerCircle.x,
-            config.centerCircle.y,
-            config.centerCircle.radius,
-            config.centerCircle.startAngle,
-            2 * Math.PI
-        )
-        ctx.fillStyle = config.centerCircle.backgroundColor
-        ctx.fill()
-    }
-
-    /**
-     * Draw the board circle
-     */
-    private drawBoardCircle() {
-        const ctx = this.ctx
-        const config = this.config
-        if (!ctx) return
-        ctx.beginPath()
-        ctx.arc(
-            config.board.x,
-            config.board.y,
-            config.board.radius,
-            config.board.startAngle,
-            2 * Math.PI
-        )
-        ctx.fillStyle = config.board.backgroundColor
-        ctx.strokeStyle = config.board.border
-        ctx.lineWidth = config.board.borderwidth
-        ctx.fill()
-        ctx.stroke()
     }
 
     /**
@@ -269,7 +261,7 @@ export class ClockMinutes {
     public set minutes(min: number) {
         if (this._minutes !== min) {
             this._minutes = min
-            this.callback({ h: this.hours, m: min })
+            this.callback({ h: this.hours, m: min, ampm: this._ampm })
         }
     }
 
@@ -280,7 +272,8 @@ export class ClockMinutes {
     public set hours(h: number) {
         if (this._hours !== h) {
             this._hours = h
-            this.callback({ h, m: this._minutes })
+            this.minutes = 0
+            this.callback({ h, m: this._minutes, ampm: this._ampm })
         }
     }
 
@@ -319,11 +312,22 @@ export class ClockMinutes {
     public get switch(): boolean {
         return this._switch
     }
+
+    private getHandLineEnds(): [number, number] {
+        const lineEndX =
+            this.config.houerHand.line.x +
+            this.adjustedRadius * Math.cos(this.degreeToRadians(this.angle))
+        const lineEndY =
+            this.config.houerHand.line.y +
+            this.adjustedRadius * Math.sin(this.degreeToRadians(this.angle))
+        return [lineEndX, lineEndY]
+    }
+
     private switchBoard() {
         this.hoveredTime = null
         if (this.currentBoardType === "hours") {
             this.currentBoardType = "minutes"
-            this.angle = this._minutes * 6 - 90
+            this.angle = -90
         } else if (this.currentBoardType === "minutes") {
             this.currentBoardType = "hours"
             this.angle = (this.hours === 12 ? 0 : this.hours * 30) - 90
@@ -335,32 +339,49 @@ export class ClockMinutes {
         let hours = date.getHours()
         const minutes = date.getMinutes()
 
-        // Ustal format AM/PM i przekształć godzinę na format 12-godzinny
-        //const ampm = hours >= 12 ? "PM" : "AM"
+        const ampm = hours >= 12 ? "PM" : "AM"
         hours = hours % 12
-        hours = hours ? hours : 12 // Zamień godzinę 0 na 12
+        hours = hours ? hours : 12
 
-        // Dodaj zero przed minutami, jeśli są mniejsze niż 10
-
-        return { h: hours, m: minutes }
+        return { h: hours, m: minutes, ampm }
     }
-    public setClock(h: number, m: number) {
+    private setClock(h: number, m: number) {
         this.hours = h
         this.minutes = m
         this.selectedTime = h === 12 ? 0 : h
-        this.angle = (h === 12 ? 0 : h * 30) - 90
+        this.angle = (h === 12 ? 0 : h * 30) + this.config.angleOffset
     }
     private setCurrentTime() {
         const { h, m } = this.getCurrentTime()
         this.setClock(h, m)
     }
+    private generateTimeText(hour: number): string | undefined {
+        if (this.currentBoardType === "hours") {
+            return hour.toString()
+        } else if (this.currentBoardType === "minutes") {
+            return (hour === 12 ? 0 : hour * 5).toString().length === 1
+                ? `0${hour === 12 ? 0 : hour * 5}`
+                : `${hour === 12 ? 0 : hour * 5}`
+        }
+    }
 
+    private generateActiveHourColor(index: number): string {
+        const config = this.config
+        let backgroundColor = config.board.backgroundColor
+        if (index === this.hoveredTime) {
+            backgroundColor = config.hour.hoverColor
+        } else if (index === this.selectedTime) {
+            backgroundColor = config.hour.activeColor
+        }
+        return backgroundColor
+    }
     /**
      * Mouse event handlers
      */
 
     private onMouseDown(e: MouseEvent) {
         const mousePos = this.getMousePos(e)
+        const config = this.config
 
         for (let i = 0; i < this.hourPositions.length; i++) {
             const hourPosition = this.hourPositions[i]
@@ -369,89 +390,90 @@ export class ClockMinutes {
                     Math.pow(mousePos.y - hourPosition.y, 2)
             )
 
-            // If click is within the radius of an hour (consider 15px as tolerance)
             if (distanceFromHour <= 15) {
-                this.angle = i * 30 - 90
+                this.angle = i * 30 + config.angleOffset
                 this.selectedTime = i
                 this.hoveredTime = null
 
                 if (this.currentBoardType === "hours") {
                     this.hours = i === 0 ? 12 : i
                 } else {
-                    this.minutes = Math.floor(
-                        (this.angle + 90) / 6 > 60
-                            ? (this.angle + 90) / 6 - 60
-                            : (this.angle + 90) / 6
-                    )
+                    this.minutes = this.degreeToMinutes(this.angle)
                 }
 
                 this.switch = true
                 console.log("Current time : ", this.hours, " : ", this._minutes)
-                return // Exit the loop once the hour is set
+                return
             }
         }
+        const [lineEndX, lineEndY] = this.getHandLineEnds()
 
-        const adjustedRadius =
-            this.config.board.radius - this.config.houerHand.arrow.width - 40
-        const angleInRadians = this._angle * (Math.PI / 180)
-        const lineEndX =
-            this.config.houerHand.line.x +
-            adjustedRadius * Math.cos(angleInRadians)
-        const lineEndY =
-            this.config.houerHand.line.y +
-            adjustedRadius * Math.sin(angleInRadians)
-
-        const arrowWidth = this.config.houerHand.arrow.width
-        const arrowHeight = this.config.houerHand.arrow.height
+        const arrowWidth = config.houerHand.arrow.width
+        const arrowHeight = config.houerHand.arrow.height
 
         const point1 = {
             x:
                 lineEndX +
-                (arrowWidth / 2) * Math.cos(angleInRadians - Math.PI / 2),
+                (arrowWidth / 2) *
+                    Math.cos(
+                        this.degreeToRadians(this.angle + config.angleOffset)
+                    ),
             y:
                 lineEndY +
-                (arrowWidth / 2) * Math.sin(angleInRadians - Math.PI / 2),
+                (arrowWidth / 2) *
+                    Math.sin(
+                        this.degreeToRadians(this.angle + config.angleOffset)
+                    ),
         }
         const point2 = {
-            x: lineEndX + arrowHeight * Math.cos(angleInRadians),
-            y: lineEndY + arrowHeight * Math.sin(angleInRadians),
+            x:
+                lineEndX +
+                arrowHeight * Math.cos(this.degreeToRadians(this.angle)),
+            y:
+                lineEndY +
+                arrowHeight * Math.sin(this.degreeToRadians(this.angle)),
         }
         const point3 = {
             x:
                 lineEndX +
-                (arrowWidth / 2) * Math.cos(angleInRadians + Math.PI / 2),
+                (arrowWidth / 2) *
+                    Math.cos(
+                        this.degreeToRadians(this.angle - config.angleOffset)
+                    ),
             y:
                 lineEndY +
-                (arrowWidth / 2) * Math.sin(angleInRadians + Math.PI / 2),
+                (arrowWidth / 2) *
+                    Math.sin(
+                        this.degreeToRadians(this.angle - config.angleOffset)
+                    ),
         }
 
-        if (this.isPointInTriangle(mousePos, point1, point2, point3)) {
+        if (this.isArrowHovered(mousePos, point1, point2, point3)) {
             this.dragging = true
         }
     }
 
     private onMouseUp() {
+        const config = this.config
         if (this.dragging && this.currentBoardType === "minutes") {
             this.switch = true
         }
         this.dragging = false
 
-        // Calculate the closest hour based on the current angle
-        let normalizedAngle = (this.angle + 90) % 360 // Normalize angle (90 degrees offset for 12 o'clock)
-        let hourIndex = Math.floor(normalizedAngle / 30) // Each hour represents 30 degrees
+        let normalizedAngle = (this.angle - config.angleOffset) % 360 // Normalize angle (90 degrees offset for 12 o'clock)
+        let hourIndex = Math.floor(normalizedAngle / 30)
         if (hourIndex === 12) {
-            hourIndex = 0 // Reset 12 o'clock to index 0
+            hourIndex = 0
         }
 
         this.selectedTime = hourIndex
-
-        //this.update()
     }
 
     private onMouseMove(e: MouseEvent) {
-        // Check if the mouse is hovering over any hour
         const mousePos = this.getMousePos(e)
+        const config = this.config
         this.hoveredTime = null
+
         for (let i = 0; i < this.hourPositions.length; i++) {
             const hourPosition = this.hourPositions[i]
             const distanceFromHour = Math.sqrt(
@@ -459,57 +481,59 @@ export class ClockMinutes {
                     Math.pow(mousePos.y - hourPosition.y, 2)
             )
 
-            // If hovering over the hour (considering 15px tolerance)
             if (distanceFromHour <= 15) {
                 if (this.selectedTime !== i) {
                     this.hoveredTime = i
-                    break // Exit loop when we find the hovered hour
+                    break
                 }
             }
         }
-        // Check if the clock hand is covering any hour only for minutes
-        if (this._currentBoardType === "hours") return
-        if (!this.dragging) return
 
-        if (this.dragging) {
+        if (this._currentBoardType === "minutes") {
+            if (!this.dragging) return
+
             this.selectedTime = null
             const angleInRadians = Math.atan2(
-                mousePos.y - this.config.houerHand.line.y,
-                mousePos.x - this.config.houerHand.line.x
+                mousePos.y - config.houerHand.line.y,
+                mousePos.x - config.houerHand.line.x
             )
 
-            const angleInDegrees = this.angleWithDegrees(angleInRadians)
+            const angleInDegrees = this.radiansToDegree(angleInRadians)
 
             this.angle = angleInDegrees
 
-            this.minutes = this.angleToMinutes(angleInDegrees)
-            this.hoveredTime = Math.floor(this.minutes / 5)
+            this.minutes = this.degreeToMinutes(angleInDegrees)
+            //this.hoveredTime = Math.floor(this.minutes / 5)
         }
     }
 
     /**
      * Utility methods
      */
-    /**
-     * Check if the clock hand is hovering over any hour
-     */
-    private angleToMinutes(angleInDegrees: number) {
+
+    private degreeToRadians(angleInDegrees: number): number {
+        return angleInDegrees * (Math.PI / 180)
+    }
+
+    private radiansToDegree(radians: number): number {
+        let degrees = radians * (180 / Math.PI)
+        if (degrees < 0) {
+            degrees = 360 + degrees
+        }
+        degrees = degrees % 360
+        return degrees
+    }
+
+    private degreeToMinutes(angleInDegrees: number) {
+        const config = this.config
         return Math.floor(
-            (angleInDegrees + 90) / 6 >= 60
-                ? (angleInDegrees + 90) / 6 - 60
-                : (angleInDegrees + 90) / 6
+            (angleInDegrees - config.angleOffset) / 6 >= 60
+                ? (angleInDegrees - config.angleOffset) / 6 - 60
+                : (angleInDegrees - config.angleOffset) / 6
         )
     }
 
-    private angleWithDegrees(radians: number) {
-        let angleInDegrees = radians * (180 / Math.PI)
-        if (angleInDegrees < 0) {
-            angleInDegrees = 360 + angleInDegrees
-        }
-        angleInDegrees = angleInDegrees % 360
-        return angleInDegrees
-    }
-    private isPointInTriangle(
+    private isArrowHovered(
         p: { x: number; y: number },
         p0: { x: number; y: number },
         p1: { x: number; y: number },

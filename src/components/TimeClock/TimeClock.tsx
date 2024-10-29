@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from "react"
-import { ClockMinutes } from "../InputTime/Clock"
-import { config } from "../InputTime/config"
+import { ClockMinutes } from "../InputTime/Clock/Clock"
+import { config } from "../InputTime/Clock/config"
 
 const CanvasWithArrow: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
