@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useLayoutEffect, useRef, useState } from "react"
 import { Routes, Route } from "react-router-dom"
 import Home from "../screens/Home"
 import Artists from "../screens/Artists"

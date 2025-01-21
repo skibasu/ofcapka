@@ -37,3 +37,12 @@
 body {
     @apply bg-pale-pink font-lato;
 }
+.open {
+    @apply animate-animateIn;
+}
+.closing {
+    @apply animate-animateOut;
+}
+.close {
+    @apply hidden;
+}

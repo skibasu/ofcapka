@@ -1,10 +1,11 @@
-import CanvasComponent from "../components/TimeClock/TimeClock"
+import TimeInput from "../components/TimeInput/TimeInput"
+import { TimeInputProvider } from "../contexts/useTimeInputContext"
 
 const Home = () => {
     return (
-        <div className="flex items-center justify-center">
-            <CanvasComponent />
-        </div>
+        <TimeInputProvider>
+            <TimeInput />
+        </TimeInputProvider>
     )
 }
 

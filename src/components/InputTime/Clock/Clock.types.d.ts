@@ -36,9 +36,14 @@ export interface Config {
         radius: number
         startAngle: number
     }
+    sliderArrow: SliderArrow
 }
 
 export interface Hand {
+    cursor: {
+        borderColor: string
+        radius: number
+    }
     arrow: {
         width: number
         height: number
@@ -54,8 +59,25 @@ export interface Hand {
     }
 }
 export type Ampm = "AM" | "PM"
+export type BoardType = "minutes" | "hours"
 export interface TimeValues {
     h: number
     m: number
     ampm: Ampm
+}
+
+export interface ArrowPositions {
+    point1: { x: number; y: number }
+    point2: { x: number; y: number }
+    point3: { x: number; y: number }
+}
+
+export interface SliderArrow {
+    x: number
+    y: number
+    width: number
+    height: number
+    backgroundColor: string
+    border: string
+    hoverColor: string
 }

@@ -1,9 +1,16 @@
-import { Ampm, Config, TimeValues } from "./Clock.types"
+import {
+    Ampm,
+    ArrowPositions,
+    BoardType,
+    Config,
+    TimeValues,
+} from "./Clock.types"
+import { config as defaultConfig } from "./config"
 
 /**
  * Class representing a clock
  */
-export class ClockMinutes {
+export class Clock {
     /** Consts */
     private fullCirce: number = 2 * Math.PI
     /**
@@ -23,11 +30,17 @@ export class ClockMinutes {
     private callback: (args: TimeValues) => void
 
     private adjustedRadius: number = 0
-    private dragging: boolean = false // Is the user dragging the clock hand?
+    private dragging: boolean = false
     private hourPositions: { hour: number; x: number; y: number }[] = []
 
+    private _arrowPosition: ArrowPositions = {} as ArrowPositions
+    private _cursorPosition: { x: number; y: number; radius: number } = {
+        x: 0,
+        y: 0,
+        radius: 0,
+    }
+
     private _currentBoardType: "hours" | "minutes" = "hours"
-    private _switch: boolean = false
 
     private _angle: number = 0
 
@@ -37,6 +50,9 @@ export class ClockMinutes {
 
     private _hoveredTime: number | null = null
     private _selectedTime: number | null = 0
+    private _isSliderHovered: boolean = false
+
+    private _isDelay: boolean = false
 
     /**
      * Creates a new instance of the Clock class
@@ -44,12 +60,12 @@ export class ClockMinutes {
      * @param canvas The canvas element
      */
     constructor(
-        config: Config,
         canvas: HTMLCanvasElement,
 
-        callback: (args: TimeValues) => void
+        callback: (args: TimeValues) => void,
+        config?: Config
     ) {
-        this.config = config
+        this.config = config || defaultConfig
         this.canvas = canvas
 
         this.adjustedRadius =
@@ -60,8 +76,8 @@ export class ClockMinutes {
         this._angle = this.config.angleOffset
         this.callback = callback
 
-        canvas.width = config.root.width
-        canvas.height = config.root.height
+        canvas.width = this.config.root.width
+        canvas.height = this.config.root.height
 
         if (!canvas) return
 
@@ -74,7 +90,18 @@ export class ClockMinutes {
         this.setCurrentTime()
         this.addMouseEvents()
     }
-
+    /**
+     * Clear the canvas context
+     */
+    private clearContext() {
+        if (!this.ctx) return
+        this.ctx.clearRect(
+            0,
+            0,
+            this.config.root.width,
+            this.config.root.height
+        )
+    }
     /**
      * Draw the board circle
      */
@@ -119,7 +146,29 @@ export class ClockMinutes {
         ctx.fillStyle = config.centerCircle.backgroundColor
         ctx.fill()
     }
+    /**
+     * Draw slider arrow
+     */
+    private drawSliderArrow() {
+        const ctx = this.ctx
+        const config = this.config
 
+        if (!ctx || this.currentBoardType === "minutes") return
+        const { point1, point2, point3 } = this.createSliderArrowPoints()
+        ctx.beginPath()
+        ctx.moveTo(point1.x, point1.y)
+
+        ctx.lineTo(point2.x, point2.y)
+
+        ctx.lineTo(point3.x, point3.y)
+        ctx.closePath()
+        ctx.strokeStyle = config.sliderArrow.backgroundColor
+        ctx.stroke()
+        ctx.fillStyle = this.isSliderHovered
+            ? config.sliderArrow.hoverColor
+            : config.sliderArrow.backgroundColor
+        ctx.fill()
+    }
     /**
      * Draw the clock hand line
      */
@@ -153,40 +202,41 @@ export class ClockMinutes {
         const [lineEndX, lineEndY] = this.getHandLineEnds()
 
         if (!lineEndX || !lineEndY) return
-
+        const points = this.getArrowPositions()
         ctx.beginPath()
+        ctx.moveTo(points.point1.x, points.point1.y)
 
-        ctx.moveTo(
-            lineEndX +
-                (config.houerHand.arrow.width / 2) *
-                    Math.cos(this.degreeToRadians(angle + config.angleOffset)),
-            lineEndY +
-                (config.houerHand.arrow.width / 2) *
-                    Math.sin(this.degreeToRadians(angle + config.angleOffset))
-        )
+        ctx.lineTo(points.point2.x, points.point2.y)
 
-        ctx.lineTo(
-            lineEndX +
-                config.houerHand.arrow.height *
-                    Math.cos(this.degreeToRadians(angle)),
-            lineEndY +
-                config.houerHand.arrow.height *
-                    Math.sin(this.degreeToRadians(angle))
-        )
-
-        ctx.lineTo(
-            lineEndX +
-                (config.houerHand.arrow.width / 2) *
-                    Math.cos(this.degreeToRadians(angle - config.angleOffset)),
-            lineEndY +
-                (config.houerHand.arrow.width / 2) *
-                    Math.sin(this.degreeToRadians(angle - config.angleOffset))
-        )
+        ctx.lineTo(points.point3.x, points.point3.y)
         ctx.closePath()
         ctx.strokeStyle = config.houerHand.arrow.border
         ctx.stroke()
         ctx.fillStyle = config.houerHand.arrow.backgroundColor
         ctx.fill()
+        this.arrowPosition = points
+
+        const circleCenterX =
+            lineEndX +
+            (config.houerHand.arrow.height + 17) *
+                Math.cos(this.degreeToRadians(angle))
+        const circleCenterY =
+            lineEndY +
+            (config.houerHand.arrow.height + 17) *
+                Math.sin(this.degreeToRadians(angle))
+
+        if (this.selectedTime === null) {
+            ctx.beginPath()
+            ctx.arc(circleCenterX, circleCenterY, 14, 0, Math.PI * 2)
+
+            ctx.strokeStyle = config.houerHand.cursor.borderColor
+            ctx.stroke()
+            this.cursorPosition = {
+                x: circleCenterX,
+                y: circleCenterY,
+                radius: config.houerHand.cursor.radius,
+            }
+        }
     }
     /**
      * Draw the hours on the clock face
@@ -199,7 +249,6 @@ export class ClockMinutes {
 
         config.hour.elements.forEach((hour, index) => {
             const angle = this.degreeToRadians(index * 30 + config.angleOffset)
-            const backgroundColor = this.generateActiveHourColor(index)
 
             const hourX =
                 config.hour.x +
@@ -210,16 +259,25 @@ export class ClockMinutes {
 
             ctx.beginPath()
 
-            ctx.globalAlpha = 0.5
-            ctx.arc(hourX, hourY, config.hour.radius, 0, 2 * Math.PI)
-            ctx.fillStyle = backgroundColor
-            ctx.fill()
-            ctx.globalAlpha = 1
-
+            if (this.selectedTime === index || this.hoveredTime === index) {
+                ctx.arc(hourX, hourY, 14, 0, 2 * Math.PI)
+                ctx.fillStyle =
+                    this.selectedTime === index ? "#182af0" : "#f0f0f0"
+                ctx.fill()
+            }
+            if (this.selectedTime === index) {
+                this.cursorPosition = {
+                    x: hourX,
+                    y: hourY,
+                    radius: config.houerHand.cursor.radius,
+                }
+            }
             this.hourPositions.push({ hour, x: hourX, y: hourY })
 
             ctx.font = config.hour.font
-            ctx.fillStyle = config.hour.color
+            ctx.fillStyle =
+                this.selectedTime === index ? "white" : config.hour.color
+
             ctx.textAlign = config.hour.textAlign
             ctx.textBaseline = config.hour.textBaseline
 
@@ -228,121 +286,152 @@ export class ClockMinutes {
     }
 
     /**
-     * Clear the canvas context
-     */
-    private clearContext() {
-        if (!this.ctx) return
-        this.ctx.clearRect(
-            0,
-            0,
-            this.config.root.width,
-            this.config.root.height
-        )
-    }
-
-    /**
      * Getters and setters
      */
 
-    public get angle(): number {
+    private get angle(): number {
         return this._angle
     }
 
-    public set angle(value: number) {
-        if (this._angle !== value) {
-            this._angle = value
-            this.selectedTime =
-                this.degreeToHours(this.angle) === 12
-                    ? 0
-                    : this.degreeToHours(this.angle)
-            this.hoveredTime = null
+    private set angle(value: number) {
+        this.hoveredTime = null
+        this._angle = Math.floor(value)
 
-            if (this.currentBoardType === "hours") {
-                this.hours = this.degreeToHours(this.angle)
-            } else {
-                this.minutes = this.degreeToMinutes(this.angle)
-            }
-            if (this.switch) {
-                if (this.currentBoardType === "hours") {
-                    this.switchBoard()
-                    this._angle = this.config.angleOffset
-                    this.minutes = this.degreeToMinutes(this.angle)
-                    this.selectedTime =
-                        this.degreeToHours(this.angle) === 12
-                            ? 0
-                            : this.degreeToHours(this.angle)
-                }
-            }
-            this.update()
+        if (this.currentBoardType === "hours") {
+            this.selectedTime =
+                this.degreeToHours() === 12 ? 0 : this.degreeToHours()
+            this.hours = this.degreeToHours()
+        } else {
+            this.minutes = this.degreeToMinutes(this.angle)
+            this.selectedTime =
+                this.minutes % 5 === 0
+                    ? this.degreeToHours() === 12
+                        ? 0
+                        : this.degreeToHours()
+                    : null
         }
+
+        this.update()
+    }
+    private get isDelay(): boolean {
+        return this._isDelay
     }
 
-    public get minutes(): number {
+    private set isDelay(isDelay: boolean) {
+        if (this._isDelay !== isDelay) {
+            this._isDelay = isDelay
+        }
+    }
+    private get minutes(): number {
         return this._minutes
     }
 
-    public set minutes(min: number) {
+    private set minutes(min: number) {
         if (this._minutes !== min) {
             this._minutes = min
             this.callback({ h: this.hours, m: min, ampm: this.ampm })
         }
     }
+    private get isSliderHovered(): boolean {
+        return this._isSliderHovered
+    }
 
-    public get hours(): number {
+    private set isSliderHovered(value: boolean) {
+        if (this._isSliderHovered !== value) {
+            this._isSliderHovered = value
+            this.update()
+        }
+    }
+    private get hours(): number {
         return this._hours
     }
 
-    public set hours(h: number) {
+    private set hours(h: number) {
         if (this._hours !== h) {
             this._hours = h
             this.callback({ h, m: this.minutes, ampm: this.ampm })
         }
     }
-    public get ampm(): Ampm {
+    private get ampm(): Ampm {
         return this._ampm
     }
 
-    public set ampm(value: Ampm) {
+    private set ampm(value: Ampm) {
         if (this._ampm !== value) {
             this._ampm = value
             this.callback({ h: this.hours, m: this.minutes, ampm: value })
         }
     }
 
-    public get currentBoardType(): "hours" | "minutes" {
+    private get currentBoardType(): "hours" | "minutes" {
         return this._currentBoardType
     }
-    public set currentBoardType(type: "hours" | "minutes") {
+    private set currentBoardType(type: BoardType) {
         if (this._currentBoardType !== type) {
             this._currentBoardType = type
+            this.isDelay
+                ? setTimeout(() => {
+                      this.angle =
+                          type === "minutes"
+                              ? this.minutes * 6 + this.config.angleOffset
+                              : this.hours * 30 + this.config.angleOffset
+                  }, 300)
+                : (() => {
+                      this.angle =
+                          type === "minutes"
+                              ? this.minutes * 6 + this.config.angleOffset
+                              : this.hours * 30 + this.config.angleOffset
+                  })()
         }
     }
-    public get hoveredTime(): number | null {
+    private get hoveredTime(): number | null {
         return this._hoveredTime
     }
-    public set hoveredTime(time: number | null) {
+    private set hoveredTime(time: number | null) {
         if (this._hoveredTime !== time) {
             this._hoveredTime = time
             this.update()
         }
     }
 
-    public get selectedTime(): number | null {
+    private get selectedTime(): number | null {
         return this._selectedTime
     }
-    public set selectedTime(time: number | null) {
+    private set selectedTime(time: number | null) {
         if (this._selectedTime !== time) {
             this._selectedTime = time
         }
     }
 
-    private set switch(value: boolean) {
-        this._switch = value
-    }
-    public get switch(): boolean {
-        return this._switch
+    private get arrowPosition(): ArrowPositions {
+        return this._arrowPosition
     }
 
+    private set arrowPosition(value: ArrowPositions) {
+        this._arrowPosition = value
+    }
+    private get cursorPosition(): { x: number; y: number; radius: number } {
+        return this._cursorPosition
+    }
+
+    private set cursorPosition(value: {
+        x: number
+        y: number
+        radius: number
+    }) {
+        this._cursorPosition = value
+    }
+
+    /**
+     * Utility methods
+     */
+    private getMousePos(e: MouseEvent) {
+        const rect = this.canvas.getBoundingClientRect()
+        return {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+        }
+    }
     private getHandLineEnds(): [number, number] {
         const lineEndX =
             this.config.houerHand.line.x +
@@ -351,6 +440,17 @@ export class ClockMinutes {
             this.config.houerHand.line.y +
             this.adjustedRadius * Math.sin(this.degreeToRadians(this.angle))
         return [lineEndX, lineEndY]
+    }
+    private getCurrentTime(): TimeValues {
+        const date = new Date()
+        let hours = date.getHours()
+        const minutes = date.getMinutes()
+
+        const ampm = hours >= 12 ? "PM" : "AM"
+        hours = hours % 12
+        hours = hours ? hours : 12
+
+        return { h: hours, m: minutes, ampm }
     }
 
     private switchBoard() {
@@ -361,21 +461,10 @@ export class ClockMinutes {
             this.currentBoardType = "hours"
         }
     }
-    private getCurrentTime(): TimeValues {
-        const date = new Date()
-        let hours = date.getHours()
-        const minutes = date.getMinutes()
 
-        const ampm = hours >= 12 ? "PM" : "AM"
-        console.log("Current time : ", hours, minutes, ampm)
-        hours = hours % 12
-        hours = hours ? hours : 12
-
-        return { h: hours, m: minutes, ampm }
-    }
-    private setClock(time: TimeValues) {
+    public setClock(time: TimeValues) {
+        this._isDelay = false
         const { h, m, ampm } = time
-
         this.hours = h
         this.minutes = m
         this.ampm = ampm
@@ -396,138 +485,6 @@ export class ClockMinutes {
         }
     }
 
-    private generateActiveHourColor(index: number): string {
-        const config = this.config
-        let backgroundColor = config.board.backgroundColor
-        if (index === this.hoveredTime) {
-            backgroundColor = config.hour.hoverColor
-        } else if (index === this.selectedTime) {
-            backgroundColor = config.hour.activeColor
-        }
-        return backgroundColor
-    }
-    /**
-     * Mouse event handlers
-     */
-
-    private onMouseDown(e: MouseEvent) {
-        this.switch = false
-        const mousePos = this.getMousePos(e)
-        const config = this.config
-
-        for (let i = 0; i < this.hourPositions.length; i++) {
-            const hourPosition = this.hourPositions[i]
-            const distanceFromHour = Math.sqrt(
-                Math.pow(mousePos.x - hourPosition.x, 2) +
-                    Math.pow(mousePos.y - hourPosition.y, 2)
-            )
-
-            if (distanceFromHour <= 15) {
-                this.switch = true
-                this.angle = i * 30 + config.angleOffset
-
-                return
-            }
-        }
-
-        const [lineEndX, lineEndY] = this.getHandLineEnds()
-
-        const arrowWidth = config.houerHand.arrow.width
-        const arrowHeight = config.houerHand.arrow.height
-
-        const point1 = {
-            x:
-                lineEndX +
-                (arrowWidth / 2) *
-                    Math.cos(
-                        this.degreeToRadians(this.angle + config.angleOffset)
-                    ),
-            y:
-                lineEndY +
-                (arrowWidth / 2) *
-                    Math.sin(
-                        this.degreeToRadians(this.angle + config.angleOffset)
-                    ),
-        }
-        const point2 = {
-            x:
-                lineEndX +
-                arrowHeight * Math.cos(this.degreeToRadians(this.angle)),
-            y:
-                lineEndY +
-                arrowHeight * Math.sin(this.degreeToRadians(this.angle)),
-        }
-        const point3 = {
-            x:
-                lineEndX +
-                (arrowWidth / 2) *
-                    Math.cos(
-                        this.degreeToRadians(this.angle - config.angleOffset)
-                    ),
-            y:
-                lineEndY +
-                (arrowWidth / 2) *
-                    Math.sin(
-                        this.degreeToRadians(this.angle - config.angleOffset)
-                    ),
-        }
-
-        if (this.isArrowHovered(mousePos, point1, point2, point3)) {
-            this.dragging = true
-        }
-    }
-
-    private onMouseUp() {
-        if (this.dragging && this.currentBoardType === "minutes") {
-            this.switch = true
-        }
-        this.dragging = false
-
-        //this.selectedTime = this.degreeToHours(this.angle)
-    }
-
-    private onMouseMove(e: MouseEvent) {
-        const mousePos = this.getMousePos(e)
-        const config = this.config
-        this.hoveredTime = null
-
-        for (let i = 0; i < this.hourPositions.length; i++) {
-            const hourPosition = this.hourPositions[i]
-            const distanceFromHour = Math.sqrt(
-                Math.pow(mousePos.x - hourPosition.x, 2) +
-                    Math.pow(mousePos.y - hourPosition.y, 2)
-            )
-
-            if (distanceFromHour <= 15) {
-                if (this.selectedTime !== i) {
-                    this.hoveredTime = i
-                    break
-                }
-            }
-        }
-
-        if (this._currentBoardType === "minutes") {
-            if (!this.dragging) return
-
-            this.selectedTime = null
-            const angleInRadians = Math.atan2(
-                mousePos.y - config.houerHand.line.y,
-                mousePos.x - config.houerHand.line.x
-            )
-
-            const angleInDegrees = this.radiansToDegree(angleInRadians)
-
-            this.angle = angleInDegrees
-
-            // this.minutes = this.degreeToMinutes(angleInDegrees)
-            this.hoveredTime = Math.floor(this.minutes / 5)
-        }
-    }
-
-    /**
-     * Utility methods
-     */
-
     private degreeToRadians(angleInDegrees: number): number {
         return angleInDegrees * (Math.PI / 180)
     }
@@ -538,7 +495,7 @@ export class ClockMinutes {
             degrees = 360 + degrees
         }
         degrees = degrees % 360
-        return degrees
+        return Math.floor(degrees)
     }
 
     private degreeToMinutes(angleInDegrees: number) {
@@ -550,11 +507,12 @@ export class ClockMinutes {
         )
     }
 
-    private degreeToHours(angleInDegrees: number) {
+    private degreeToHours() {
         let normalizedAngle = (this.angle - this.config.angleOffset) % 360 // Normalize angle (90 degrees offset for 12 o'clock)
         let hourIndex = Math.floor(normalizedAngle / 30)
         return hourIndex === 12 ? 0 : hourIndex
     }
+
     private isArrowHovered(
         p: { x: number; y: number },
         p0: { x: number; y: number },
@@ -571,14 +529,313 @@ export class ClockMinutes {
         return s >= 0 && t >= 0 && u >= 0
     }
 
-    private getMousePos(e: MouseEvent) {
-        const rect = this.canvas.getBoundingClientRect()
-        return {
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top,
+    private isCursorHovered(
+        p: { x: number; y: number; radius: number }, // Pozycja kursora
+        center: { x: number; y: number } // Środek okręgu
+    ): boolean {
+        const radius = p.radius
+
+        // Oblicz odległość między punktem kursora a środkiem okręgu
+        const dx = p.x - center.x
+        const dy = p.y - center.y
+        const distance = Math.sqrt(dx * dx + dy * dy)
+
+        // Sprawdź, czy odległość jest mniejsza lub równa promieniowi
+        return distance <= radius
+    }
+    private getArrowPositions(): ArrowPositions {
+        const [lineEndX, lineEndY] = this.getHandLineEnds()
+        const config = this.config
+        const angle = this.angle
+        const points = {
+            point1: {
+                x:
+                    lineEndX +
+                    (config.houerHand.arrow.width / 2) *
+                        Math.cos(
+                            this.degreeToRadians(angle + config.angleOffset)
+                        ),
+                y:
+                    lineEndY +
+                    (config.houerHand.arrow.width / 2) *
+                        Math.sin(
+                            this.degreeToRadians(angle + config.angleOffset)
+                        ),
+            },
+            point2: {
+                x:
+                    lineEndX +
+                    config.houerHand.arrow.height *
+                        Math.cos(this.degreeToRadians(angle)),
+                y:
+                    lineEndY +
+                    config.houerHand.arrow.height *
+                        Math.sin(this.degreeToRadians(angle)),
+            },
+            point3: {
+                x:
+                    lineEndX +
+                    (config.houerHand.arrow.width / 2) *
+                        Math.cos(
+                            this.degreeToRadians(angle - config.angleOffset)
+                        ),
+                y:
+                    lineEndY +
+                    (config.houerHand.arrow.width / 2) *
+                        Math.sin(
+                            this.degreeToRadians(angle - config.angleOffset)
+                        ),
+            },
+        }
+        return points
+    }
+    private createSliderArrowPoints() {
+        const config = this.config
+
+        const points = {
+            point1: {
+                x: config.sliderArrow.x,
+
+                y: config.sliderArrow.y,
+            },
+            point2: {
+                x: config.sliderArrow.x - config.sliderArrow.width / 2,
+
+                y: config.sliderArrow.y - config.sliderArrow.height / 2,
+            },
+            point3: {
+                x: config.sliderArrow.x - config.sliderArrow.width / 2,
+                y: config.sliderArrow.y + config.sliderArrow.height / 2,
+            },
+        }
+        return points
+    }
+
+    /**
+     * hour and Minutes events handlers
+     */
+    private minuteClickHandler(mousePos: { x: number; y: number }) {
+        const { x, y } = mousePos
+        const config = this.config
+
+        const dx = x - config.board.x
+        const dy = y - config.board.y
+        const distanceFromCenter = Math.sqrt(dx * dx + dy * dy)
+        const isInOuterCircle = distanceFromCenter < config.board.radius
+        const isOutsideInnerCircle =
+            distanceFromCenter >
+            config.board.radius - config.hour.offsetTop - 15
+
+        if (
+            this.hoveredTime !== null &&
+            this.isCursorHovered(
+                {
+                    ...this.hourPositions[this.hoveredTime],
+                    radius: config.hour.radius,
+                },
+                mousePos
+            )
+        ) {
+            this.cursorPosition = {
+                x: this.hourPositions[this.hoveredTime].x,
+                y: this.hourPositions[this.hoveredTime].y,
+                radius: config.houerHand.cursor.radius,
+            }
+            this.angle = this.hoveredTime * 30 + config.angleOffset
+        } else if (isInOuterCircle && isOutsideInnerCircle) {
+            const angleRadians = Math.atan2(dy, dx)
+            const angleDegrees = this.radiansToDegree(angleRadians)
+
+            this.angle = angleDegrees
+        }
+    }
+    private sliderClickHandler() {
+        if (this.isSliderHovered) {
+            return
+        }
+    }
+    private hourClickHandler = (mousePos: { x: number; y: number }) => {
+        const { x, y } = mousePos
+        const config = this.config
+
+        for (let i = 0; i < this.hourPositions.length; i++) {
+            const hourPosition = this.hourPositions[i]
+            const distanceFromHour = Math.sqrt(
+                Math.pow(x - hourPosition.x, 2) +
+                    Math.pow(y - hourPosition.y, 2)
+            )
+
+            if (distanceFromHour <= 15) {
+                if (this.dragging) return
+
+                this.angle = i * 30 + config.angleOffset
+
+                this.switchBoard()
+                return
+            }
+        }
+    }
+    /**
+     * Mouse event handlers
+     */
+
+    private onMouseDown(e: MouseEvent) {
+        const mousePos = this.getMousePos(e)
+        const config = this.config
+        this.sliderClickHandler()
+        const { point1, point2, point3 } = this.getArrowPositions()
+
+        if (
+            this.isArrowHovered(
+                mousePos,
+                {
+                    x: config.sliderArrow.x,
+
+                    y: config.sliderArrow.y,
+                },
+                {
+                    x: config.sliderArrow.x - config.sliderArrow.width / 2,
+
+                    y: config.sliderArrow.y - config.sliderArrow.height / 2,
+                },
+                {
+                    x: config.sliderArrow.x - config.sliderArrow.width / 2,
+                    y: config.sliderArrow.y + config.sliderArrow.height / 2,
+                }
+            )
+        ) {
+            this.currentBoardType = "minutes"
+        }
+        if (
+            this.isArrowHovered(mousePos, point1, point2, point3) ||
+            this.isCursorHovered(this.cursorPosition, mousePos) ||
+            (this.selectedTime !== null &&
+                this.isCursorHovered(
+                    {
+                        x: this.hourPositions[this.selectedTime]["x"],
+                        y: this.hourPositions[this.selectedTime]["y"],
+                        radius: config.hour.radius,
+                    },
+                    mousePos
+                ))
+        ) {
+            this.dragging = true
+        }
+
+        if (this.currentBoardType === "minutes") {
+            !this.dragging && this.minuteClickHandler(mousePos)
+        } else if (this.currentBoardType === "hours") {
+            !this.dragging && this.hourClickHandler(mousePos)
         }
     }
 
+    private isCircleContained(
+        circle1: { x: number; y: number; radius: number },
+        circle2: { x: number; y: number; radius: number }
+    ): boolean {
+        const dx = circle2.x - circle1.x
+        const dy = circle2.y - circle1.y
+        const distance = Math.sqrt(dx * dx + dy * dy)
+
+        return (
+            distance + Math.min(circle1.radius, circle2.radius) <=
+            Math.max(circle1.radius, circle2.radius)
+        )
+    }
+
+    private onMouseUp() {
+        if (this.dragging) {
+            if (this.currentBoardType === "hours") {
+                this.switchBoard()
+            }
+        }
+
+        this.dragging = false
+    }
+
+    private onMouseMove(e: MouseEvent) {
+        const mousePos = this.getMousePos(e)
+        const config = this.config
+        this.hoveredTime = null
+        this.isSliderHovered = false
+
+        if (!this.dragging) {
+            for (let i = 0; i < this.hourPositions.length; i++) {
+                const hourPosition = this.hourPositions[i]
+                const distanceFromHour = Math.sqrt(
+                    Math.pow(mousePos.x - hourPosition.x, 2) +
+                        Math.pow(mousePos.y - hourPosition.y, 2)
+                )
+                if (this.currentBoardType === "hours") {
+                    if (distanceFromHour <= 15) {
+                        if (this.selectedTime !== i) {
+                            this.hoveredTime = i
+                            break
+                        }
+                    }
+                    if (
+                        this.isArrowHovered(
+                            mousePos,
+                            {
+                                x: config.sliderArrow.x,
+
+                                y: config.sliderArrow.y,
+                            },
+                            {
+                                x:
+                                    config.sliderArrow.x -
+                                    config.sliderArrow.width / 2,
+
+                                y:
+                                    config.sliderArrow.y -
+                                    config.sliderArrow.height / 2,
+                            },
+                            {
+                                x:
+                                    config.sliderArrow.x -
+                                    config.sliderArrow.width / 2,
+                                y:
+                                    config.sliderArrow.y +
+                                    config.sliderArrow.height / 2,
+                            }
+                        )
+                    ) {
+                        this.isSliderHovered = true
+                    }
+                } else {
+                    if (distanceFromHour <= 15) {
+                        if (
+                            !this.isCircleContained(this.cursorPosition, {
+                                x: hourPosition.x,
+                                y: hourPosition.y,
+                                radius: 14,
+                            })
+                        ) {
+                            this.hoveredTime = i
+                        }
+                        break
+                    }
+                }
+            }
+        } else {
+            const angleInRadians = Math.atan2(
+                mousePos.y - config.houerHand.line.y,
+                mousePos.x - config.houerHand.line.x
+            )
+
+            const angleInDegrees = this.radiansToDegree(angleInRadians)
+            if (this._currentBoardType === "hours") {
+                if (angleInDegrees % 30 === 0) {
+                    this.angle = angleInDegrees
+                }
+            } else {
+                this.angle = angleInDegrees
+            }
+        }
+    }
+    /**
+     * Initialize the events
+     */
     private addMouseEvents() {
         this.canvas.addEventListener("mousedown", (e) => this.onMouseDown(e))
         this.canvas.addEventListener("mousemove", (e) => this.onMouseMove(e))
@@ -588,12 +845,14 @@ export class ClockMinutes {
     /**
      * Initialize the clock components
      */
+
     private init() {
         this.drawBoardCircle()
         this.drawCenterCircle()
         this.drawHours()
         this.drawLine()
         this.drawHandArrow()
+        this.drawSliderArrow()
     }
 
     /**
@@ -602,5 +861,45 @@ export class ClockMinutes {
     private update() {
         this.clearContext()
         this.init()
+    }
+    private destroy() {
+        this.canvas.width = 0
+        this.canvas.height = 0
+        this.canvas.removeEventListener("mousedown", (e) => this.onMouseDown(e))
+        this.canvas.removeEventListener("mousemove", (e) => this.onMouseMove(e))
+        this.canvas.removeEventListener("mouseup", () => this.onMouseUp())
+        this.clearContext()
+    }
+
+    public setBoard(type: BoardType) {
+        this.isDelay = false
+        this.currentBoardType = type
+        this.isDelay = true
+    }
+    public setAmPm(value: Ampm) {
+        this.ampm = value
+    }
+    public closeClock() {
+        this.destroy()
+    }
+    public openClock(time?: TimeValues) {
+        this.canvas.width = this.config.root.width
+        this.canvas.height = this.config.root.height
+
+        time ? this.setClock(time) : this.setCurrentTime()
+
+        this.addMouseEvents()
+        this.init()
+    }
+    public setHours(h: number) {
+        this._isDelay = true
+        const hour = h === 12 ? 0 : h
+        if (hour === this.hours) return
+        this.angle = (h === 12 ? 0 : h * 30) + this.config.angleOffset
+    }
+    public setMinutes(m: number) {
+        this._isDelay = false
+        if (m === this.minutes) return
+        this.angle = m * 6 + this.config.angleOffset
     }
 }
