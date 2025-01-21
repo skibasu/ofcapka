@@ -5,9 +5,9 @@ const InstallButton = () => {
     const [isInstallable, setIsInstallable] = useState(false)
 
     useEffect(() => {
-        const handleBeforeInstallPrompt = (event: any) => {
+        const handleBeforeInstallPrompt = () => {
             // Prevent the default prompt from showing up
-            event.preventDefault()
+            event?.preventDefault()
             // Save the event for later use
             setDeferredPrompt(event)
             setIsInstallable(true)
